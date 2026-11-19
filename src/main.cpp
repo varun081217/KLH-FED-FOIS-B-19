@@ -12,7 +12,11 @@ const int FAULT_LED = 25;
 bool pumpState = false;
 bool flowFault = false;
 
+float totalWaterUsed = 0.0;
+
 unsigned long pumpStartedAt = 0;
+unsigned long lastUpdate = 0;
+
 const unsigned long FLOW_CHECK_DELAY = 3000;
 
 void setup() {
@@ -25,6 +29,8 @@ void setup() {
   digitalWrite(PUMP_LED, LOW);
   digitalWrite(FAULT_LED, LOW);
 
+  lastUpdate = millis();
+
   Serial.println("SMART IRRIGATION SYSTEM");
   Serial.println("========================");
 }
@@ -36,10 +42,13 @@ void loop() {
   int tankRaw = analogRead(TANK_PIN);
   int flowRaw = analogRead(FLOW_PIN);
 
-  // Convert to percentages
+  // Convert readings into percentages
   float soilPercent = (soilRaw / 4095.0) * 100.0;
   float tankPercent = (tankRaw / 4095.0) * 100.0;
   float flowPercent = (flowRaw / 4095.0) * 100.0;
+
+  // Convert flow percentage into L/min
+  float flowRate = (flowPercent / 100.0) * 10.0;
 
   bool lowWater = tankPercent < 20;
   bool oldPumpState = pumpState;
@@ -65,7 +74,7 @@ void loop() {
     pumpStartedAt = millis();
   }
 
-  // Check for missing flow after 3 seconds
+  // Detect missing flow
   if (pumpState &&
       millis() - pumpStartedAt >= FLOW_CHECK_DELAY &&
       flowPercent < 5) {
@@ -74,33 +83,44 @@ void loop() {
     pumpState = false;
   }
 
+  // Calculate water consumption
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - lastUpdate;
+
+  if (pumpState && flowPercent >= 5) {
+    totalWaterUsed += flowRate * elapsedTime / 60000.0;
+  }
+
+  lastUpdate = currentTime;
+
   // Update LEDs
   digitalWrite(PUMP_LED, pumpState ? HIGH : LOW);
   digitalWrite(FAULT_LED, (lowWater || flowFault) ? HIGH : LOW);
 
-  // Display results
-  Serial.println("\n--- FAULT MONITORING ---");
+  // Display readings
+  Serial.println("\n--- WATER MONITORING ---");
 
-  Serial.print("Soil: ");
+  Serial.print("Soil Moisture: ");
   Serial.print(soilPercent, 1);
   Serial.println("%");
 
-  Serial.print("Tank: ");
+  Serial.print("Tank Level: ");
   Serial.print(tankPercent, 1);
   Serial.println("%");
 
-  Serial.print("Flow: ");
-  Serial.print(flowPercent, 1);
-  Serial.println("%");
+  Serial.print("Flow Rate: ");
+  Serial.print(flowRate, 2);
+  Serial.println(" L/min");
 
-  Serial.print("Pump: ");
+  Serial.print("Pump Status: ");
   Serial.println(pumpState ? "ON" : "OFF");
 
   Serial.print("Flow Fault: ");
   Serial.println(flowFault ? "DETECTED" : "NORMAL");
 
-  Serial.print("Tank Fault: ");
-  Serial.println(lowWater ? "LOW WATER" : "NORMAL");
+  Serial.print("Water Consumed: ");
+  Serial.print(totalWaterUsed, 3);
+  Serial.println(" L");
 
   Serial.println("========================");
 
